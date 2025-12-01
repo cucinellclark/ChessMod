@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Board } from './components/Board';
 import { CardHand } from './components/CardHand';
 import { MoveHistory } from './components/MoveHistory';
@@ -13,6 +13,8 @@ function App() {
   const [gameState, setGameState] = useState(gameStateManager.getState());
   const [ai] = useState(() => new AI('black'));
   const [isAITurn, setIsAITurn] = useState(false);
+  const [useAI, setUseAI] = useState(true);
+  const aiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get board representation from chess engine
   const getBoard = useCallback((): (Piece | null)[][] => {
@@ -24,14 +26,16 @@ function App() {
   }, [gameStateManager]);
 
   const makeAIMove = useCallback(() => {
+    if (!useAI) return;
+    
     const currentState = gameStateManager.getState();
     if (currentState.currentTurn !== 'black') return;
     
     setIsAITurn(true);
     
-    setTimeout(() => {
+    aiTimeoutRef.current = setTimeout(() => {
       const state = gameStateManager.getState();
-      if (state.currentTurn !== 'black') {
+      if (state.currentTurn !== 'black' || !useAI) {
         setIsAITurn(false);
         return;
       }
@@ -48,10 +52,14 @@ function App() {
       
       setIsAITurn(false);
     }, 1000); // Delay for better UX
-  }, [gameStateManager, ai, updateGameState]);
+  }, [gameStateManager, ai, updateGameState, useAI]);
 
   const handleSquareClick = useCallback((position: Position) => {
-    if (gameState.currentTurn !== 'white' || isAITurn) return;
+    if (isAITurn) return;
+    
+    // When AI is enabled, only white can move manually
+    // When AI is disabled, both players can move
+    if (useAI && gameState.currentTurn !== 'white') return;
     
     const board = gameStateManager.getState().chessEngine.getBoard();
     const piece = board[position.row][position.col];
@@ -63,13 +71,14 @@ function App() {
         updateGameState();
         const newState = gameStateManager.getState();
         // If card is still active, don't trigger AI yet
-        if (!newState.isCardActive) {
+        if (!newState.isCardActive && useAI) {
           // Card effect complete or normal move, AI's turn
           setTimeout(() => makeAIMove(), 500);
         }
       } else {
         // If move failed, try selecting a new piece
-        if (piece && piece.color === 'white') {
+        const currentTurn = gameState.currentTurn;
+        if (piece && piece.color === currentTurn) {
           gameStateManager.selectPiece(piece);
           updateGameState();
         } else {
@@ -78,16 +87,19 @@ function App() {
         }
       }
     } else {
-      // Select a piece
-      if (piece && piece.color === 'white') {
+      // Select a piece of the current turn's color
+      const currentTurn = gameState.currentTurn;
+      if (piece && piece.color === currentTurn) {
         gameStateManager.selectPiece(piece);
         updateGameState();
       }
     }
-  }, [gameState, gameStateManager, updateGameState, isAITurn, makeAIMove]);
+  }, [gameState, gameStateManager, updateGameState, isAITurn, makeAIMove, useAI]);
 
   const handleCardPlay = useCallback((cardId: string) => {
-    if (gameState.currentTurn !== 'white' || isAITurn) return;
+    if (isAITurn) return;
+    // Cards can only be played by white for now (even when AI is off)
+    if (gameState.currentTurn !== 'white') return;
     const success = gameStateManager.playCard(cardId);
     if (success) {
       updateGameState();
@@ -99,16 +111,63 @@ function App() {
     if (success) {
       updateGameState();
       setIsAITurn(false);
+      // Cancel any pending AI move
+      if (aiTimeoutRef.current) {
+        clearTimeout(aiTimeoutRef.current);
+        aiTimeoutRef.current = null;
+      }
     }
   }, [gameStateManager, updateGameState]);
 
+  const handleNewGame = useCallback(() => {
+    // Cancel any pending AI move
+    if (aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current);
+      aiTimeoutRef.current = null;
+    }
+    setIsAITurn(false);
+    gameStateManager.resetGame();
+    updateGameState();
+  }, [gameStateManager, updateGameState]);
+
+  const handleToggleAI = useCallback((enabled: boolean) => {
+    setUseAI(enabled);
+    // Cancel any pending AI move when disabling AI
+    if (!enabled && aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current);
+      aiTimeoutRef.current = null;
+      setIsAITurn(false);
+    }
+  }, []);
+
   const board = getBoard();
+
+  const getTurnText = () => {
+    if (useAI) {
+      return gameState.currentTurn === 'white' ? 'Your Turn' : "AI's Turn";
+    } else {
+      return gameState.currentTurn === 'white' ? "White's Turn" : "Black's Turn";
+    }
+  };
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>ChessMod</h1>
         <p className="subtitle">Chess with Cards</p>
+        <div className="game-controls">
+          <button className="new-game-button" onClick={handleNewGame}>
+            New Game
+          </button>
+          <label className="ai-toggle">
+            <input
+              type="checkbox"
+              checked={useAI}
+              onChange={(e) => handleToggleAI(e.target.checked)}
+            />
+            <span>Use AI</span>
+          </label>
+        </div>
       </header>
       
       <div className="game-container">
@@ -126,7 +185,7 @@ function App() {
 
         <div className="game-board-area">
           <div className="turn-indicator">
-            {gameState.currentTurn === 'white' ? 'Your Turn' : "AI's Turn"}
+            {getTurnText()}
             {gameState.isCardActive && (
               <span className="card-active-indicator">
                 (Card Active: {gameState.remainingMoves} moves remaining)

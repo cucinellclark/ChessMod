@@ -250,5 +250,24 @@ export class GameStateManager {
   getPlayerHand(): Card[] {
     return this.state.cardSystem.getPlayerHand();
   }
+
+  resetGame(): void {
+    this.state = {
+      chessEngine: new ChessEngine(),
+      cardSystem: new CardSystem(),
+      currentTurn: 'white',
+      selectedPiece: null,
+      validMoves: [],
+      moveHistory: [],
+      canUndo: false,
+      isCardActive: false,
+      activeCard: null,
+      remainingMoves: 1,
+      protectedPieces: new Map(),
+      hasExtraTurn: false,
+      pendingTeleport: false,
+      pendingSwap: false
+    };
+  }
 }
 
