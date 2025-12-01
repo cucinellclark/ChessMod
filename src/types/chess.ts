@@ -13,12 +13,33 @@ export interface Piece {
   hasMoved?: boolean;
 }
 
+export type SpecialMoveType = 
+  | 'castling_kingside'
+  | 'castling_queenside'
+  | 'en_passant'
+  | 'promotion'
+  | 'check'
+  | 'checkmate'
+  | 'stalemate';
+
+export interface SpecialMoveData {
+  castling?: {
+    rookFrom: Position;
+    rookTo: Position;
+  };
+  enPassant?: {
+    capturedPawnPosition: Position; // The pawn being captured
+  };
+}
+
 export interface Move {
   from: Position;
   to: Position;
   piece: Piece;
   capturedPiece?: Piece;
   promotion?: PieceType;
+  specialMove?: SpecialMoveType;
+  specialMoveData?: SpecialMoveData;
 }
 
 export interface BoardState {

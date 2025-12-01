@@ -8,6 +8,8 @@ export interface ChessEngineHelper {
   getPieceAt(position: Position): Piece | null;
   isValidPosition(position: Position): boolean;
   getLinearMoves(piece: Piece, directions: { row: number; col: number }[]): Position[];
+  getBoard(): (Piece | null)[][];
+  clone?(): ChessEngineHelper; // Optional clone method for testing moves
 }
 
 export interface PieceDefinition {

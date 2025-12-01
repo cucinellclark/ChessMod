@@ -2,6 +2,7 @@ import { Color, Move, Piece, Position } from '../types/chess';
 import { Card } from '../types/cards';
 import { ChessEngine } from './chessEngine';
 import { CardSystem } from './cardSystem';
+import { SpecialMoveContext } from './specialMoves';
 
 export interface GameState {
   chessEngine: ChessEngine;
@@ -18,6 +19,11 @@ export interface GameState {
   hasExtraTurn: boolean; // For extra_turn card
   pendingTeleport: boolean; // For teleport card
   pendingSwap: boolean; // For swap_pieces card
+  enPassantTarget?: Position; // Square available for en passant capture
+  castlingRights: {
+    white: { kingside: boolean; queenside: boolean };
+    black: { kingside: boolean; queenside: boolean };
+  };
 }
 
 export class GameStateManager {
@@ -38,7 +44,21 @@ export class GameStateManager {
       protectedPieces: new Map(),
       hasExtraTurn: false,
       pendingTeleport: false,
-      pendingSwap: false
+      pendingSwap: false,
+      enPassantTarget: undefined,
+      castlingRights: {
+        white: { kingside: true, queenside: true },
+        black: { kingside: true, queenside: true }
+      }
+    };
+  }
+
+  private getSpecialMoveContext(): SpecialMoveContext {
+    return {
+      currentTurn: this.state.currentTurn,
+      moveHistory: this.state.moveHistory,
+      enPassantTarget: this.state.enPassantTarget,
+      castlingRights: this.state.castlingRights
     };
   }
 
@@ -63,14 +83,15 @@ export class GameStateManager {
     }
 
     this.state.selectedPiece = boardPiece;
-    this.state.validMoves = this.state.chessEngine.getValidMoves(boardPiece);
+    const context = this.getSpecialMoveContext();
+    this.state.validMoves = this.state.chessEngine.getValidMoves(boardPiece, context);
   }
 
   makeMove(to: Position): boolean {
     if (!this.state.selectedPiece) return false;
 
     const from = this.state.selectedPiece.position;
-    const targetPiece = this.state.chessEngine.getPieceAt(to);
+    let targetPiece = this.state.chessEngine.getPieceAt(to);
     
     // Check if target piece is protected
     if (targetPiece) {
@@ -81,21 +102,83 @@ export class GameStateManager {
       }
     }
     
+    // Check if this is a special move (castling or en passant)
+    const context = this.getSpecialMoveContext();
+    let specialMove: Move['specialMove'] = undefined;
+    let specialMoveData: Move['specialMoveData'] = undefined;
+    
+    // Check for castling
+    if (this.state.selectedPiece.type === 'king') {
+      const row = from.row;
+      const kingCol = from.col;
+      
+      // Kingside castling
+      if (to.row === row && to.col === kingCol + 2) {
+        specialMove = 'castling_kingside';
+        specialMoveData = {
+          castling: {
+            rookFrom: { row, col: 7 },
+            rookTo: { row, col: kingCol + 1 }
+          }
+        };
+      }
+      // Queenside castling
+      else if (to.row === row && to.col === kingCol - 2) {
+        specialMove = 'castling_queenside';
+        specialMoveData = {
+          castling: {
+            rookFrom: { row, col: 0 },
+            rookTo: { row, col: kingCol - 1 }
+          }
+        };
+      }
+    }
+    
+    // Check for en passant
+    if (this.state.selectedPiece.type === 'pawn' && this.state.enPassantTarget) {
+      if (to.row === this.state.enPassantTarget.row && to.col === this.state.enPassantTarget.col) {
+        specialMove = 'en_passant';
+        const direction = this.state.selectedPiece.color === 'white' ? -1 : 1;
+        const capturedPawnPosition = { 
+          row: this.state.enPassantTarget.row - direction, 
+          col: this.state.enPassantTarget.col 
+        };
+        specialMoveData = {
+          enPassant: {
+            capturedPawnPosition
+          }
+        };
+        // Update captured piece for en passant
+        const capturedPawn = this.state.chessEngine.getPieceAt(capturedPawnPosition);
+        if (capturedPawn) {
+          targetPiece = capturedPawn;
+        }
+      }
+    }
+    
     const move: Move = {
       from,
       to,
       piece: { ...this.state.selectedPiece },
-      capturedPiece: targetPiece ? { ...targetPiece } : undefined
+      capturedPiece: targetPiece ? { ...targetPiece } : undefined,
+      specialMove,
+      specialMoveData
     };
 
-    const success = this.state.chessEngine.makeMove(move);
+    const success = this.state.chessEngine.makeMove(move, context);
     
     if (success) {
+      // Update castling rights if king or rook moved
+      this.updateCastlingRights(move);
+      
+      // Set en passant target if pawn moved two squares
+      this.updateEnPassantTarget(move);
+      
       this.state.moveHistory.push(move);
       this.state.canUndo = true;
       
       // Draw a card if a piece was captured
-      if (targetPiece) {
+      if (targetPiece || move.specialMove === 'en_passant') {
         if (this.state.currentTurn === 'white') {
           this.state.cardSystem.drawCardForPlayer();
         } else {
@@ -111,7 +194,8 @@ export class GameStateManager {
           const movedPiece = this.state.chessEngine.getPieceAt(to);
           if (movedPiece && movedPiece.color === this.state.currentTurn) {
             this.state.selectedPiece = movedPiece;
-            this.state.validMoves = this.state.chessEngine.getValidMoves(movedPiece);
+            const context = this.getSpecialMoveContext();
+            this.state.validMoves = this.state.chessEngine.getValidMoves(movedPiece, context);
           } else {
             // Piece was captured or something went wrong, end turn
             this.state.isCardActive = false;
@@ -188,9 +272,68 @@ export class GameStateManager {
     return true;
   }
 
+  private updateCastlingRights(move: Move): void {
+    const color = move.piece.color;
+    
+    // If king moved, lose all castling rights
+    if (move.piece.type === 'king') {
+      this.state.castlingRights[color].kingside = false;
+      this.state.castlingRights[color].queenside = false;
+    }
+    
+    // If rook moved, lose castling rights for that side
+    if (move.piece.type === 'rook') {
+      const row = move.from.row;
+      if (row === (color === 'white' ? 7 : 0)) {
+        if (move.from.col === 0) {
+          // Queenside rook
+          this.state.castlingRights[color].queenside = false;
+        } else if (move.from.col === 7) {
+          // Kingside rook
+          this.state.castlingRights[color].kingside = false;
+        }
+      }
+    }
+    
+    // If a rook was captured, the opponent loses castling rights for that side
+    if (move.capturedPiece?.type === 'rook') {
+      const capturedColor = move.capturedPiece.color;
+      const row = move.to.row;
+      if (row === (capturedColor === 'white' ? 7 : 0)) {
+        if (move.to.col === 0) {
+          this.state.castlingRights[capturedColor].queenside = false;
+        } else if (move.to.col === 7) {
+          this.state.castlingRights[capturedColor].kingside = false;
+        }
+      }
+    }
+  }
+
+  private updateEnPassantTarget(move: Move): void {
+    // If a pawn moved two squares, set en passant target
+    // (The target will be cleared at the start of the next turn)
+    if (move.piece.type === 'pawn') {
+      const fromRow = move.from.row;
+      const toRow = move.to.row;
+      const startRow = move.piece.color === 'white' ? 6 : 1;
+      
+      if (fromRow === startRow && Math.abs(toRow - fromRow) === 2) {
+        // Pawn moved two squares - set en passant target to the square it passed over
+        const direction = move.piece.color === 'white' ? -1 : 1;
+        this.state.enPassantTarget = {
+          row: fromRow + direction,
+          col: move.to.col
+        };
+      }
+    }
+  }
+
   private endTurn(): void {
     this.state.selectedPiece = null;
     this.state.validMoves = [];
+    
+    // Clear en passant target (only valid for one move)
+    this.state.enPassantTarget = undefined;
     
     // Decrement protection timers
     const protectedKeys = Array.from(this.state.protectedPieces.keys());
