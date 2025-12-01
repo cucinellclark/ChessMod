@@ -310,8 +310,11 @@ export class GameStateManager {
   }
 
   private updateEnPassantTarget(move: Move): void {
-    // If a pawn moved two squares, set en passant target
-    // (The target will be cleared at the start of the next turn)
+    // Clear any existing en passant target from the previous turn
+    // (it's only valid for one turn after a pawn double-move)
+    this.state.enPassantTarget = undefined;
+    
+    // If a pawn moved two squares, set new en passant target
     if (move.piece.type === 'pawn') {
       const fromRow = move.from.row;
       const toRow = move.to.row;
@@ -332,8 +335,8 @@ export class GameStateManager {
     this.state.selectedPiece = null;
     this.state.validMoves = [];
     
-    // Clear en passant target (only valid for one move)
-    this.state.enPassantTarget = undefined;
+    // Note: en passant target is now cleared at the start of the next move
+    // (in updateEnPassantTarget), not here
     
     // Decrement protection timers
     const protectedKeys = Array.from(this.state.protectedPieces.keys());
@@ -409,7 +412,12 @@ export class GameStateManager {
       protectedPieces: new Map(),
       hasExtraTurn: false,
       pendingTeleport: false,
-      pendingSwap: false
+      pendingSwap: false,
+      enPassantTarget: undefined,
+      castlingRights: {
+        white: { kingside: true, queenside: true },
+        black: { kingside: true, queenside: true }
+      }
     };
   }
 }
