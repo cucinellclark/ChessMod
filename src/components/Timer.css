@@ -1,0 +1,47 @@
+.timer {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.timer-player {
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.timer-player:last-child {
+  margin-bottom: 0;
+}
+
+.timer-player.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: #5568d3;
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+  transform: scale(1.05);
+}
+
+.timer-label {
+  font-size: 1rem;
+  font-weight: bold;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.timer-value {
+  font-size: 2rem;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+}
+
+.timer-player.active .timer-label,
+.timer-player.active .timer-value {
+  color: white;
+}
+
