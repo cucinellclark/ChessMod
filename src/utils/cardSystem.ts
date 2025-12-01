@@ -1,4 +1,5 @@
 import { Card } from '../types/cards';
+import { CARD_TEMPLATES } from '../cards/cardTemplates';
 
 export class CardSystem {
   private deck: Card[];
@@ -14,17 +15,23 @@ export class CardSystem {
   }
 
   private createDeck(): Card[] {
-    // For now, create a deck with multiple "Move Twice" cards
-    // In the future, this can be expanded with different card types
     const cards: Card[] = [];
-    for (let i = 0; i < 20; i++) {
-      cards.push({
-        id: `move_twice_${i}`,
-        name: 'Double Move',
-        description: 'Move a piece twice in one turn',
-        effect: { type: 'move_twice' }
-      });
+    let cardId = 0;
+
+    // Create cards from templates
+    for (const template of CARD_TEMPLATES) {
+      for (let i = 0; i < template.count; i++) {
+        // Generate a unique ID based on effect type and index
+        const effectType = template.effect.type;
+        cards.push({
+          id: `${effectType}_${cardId++}`,
+          name: template.name,
+          description: template.description,
+          effect: template.effect
+        });
+      }
     }
+
     return cards;
   }
 
@@ -85,6 +92,13 @@ export class CardSystem {
   getCardById(cardId: string): Card | null {
     const allCards = [...this.playerHand, ...this.aiHand, ...this.deck];
     return allCards.find(card => card.id === cardId) || null;
+  }
+
+  returnCardToHand(card: Card, isPlayer: boolean): void {
+    const hand = isPlayer ? this.playerHand : this.aiHand;
+    if (hand.length < 10) {
+      hand.push(card);
+    }
   }
 }
 

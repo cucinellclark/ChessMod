@@ -14,6 +14,10 @@ export interface GameState {
   isCardActive: boolean;
   activeCard: Card | null;
   remainingMoves: number; // For move_twice card
+  protectedPieces: Map<string, number>; // Piece position -> turns remaining
+  hasExtraTurn: boolean; // For extra_turn card
+  pendingTeleport: boolean; // For teleport card
+  pendingSwap: boolean; // For swap_pieces card
 }
 
 export class GameStateManager {
@@ -30,12 +34,19 @@ export class GameStateManager {
       canUndo: false,
       isCardActive: false,
       activeCard: null,
-      remainingMoves: 1
+      remainingMoves: 1,
+      protectedPieces: new Map(),
+      hasExtraTurn: false,
+      pendingTeleport: false,
+      pendingSwap: false
     };
   }
 
   getState(): GameState {
-    return { ...this.state };
+    return { 
+      ...this.state,
+      protectedPieces: new Map(this.state.protectedPieces)
+    };
   }
 
   selectPiece(piece: Piece | null): void {
@@ -61,6 +72,15 @@ export class GameStateManager {
     const from = this.state.selectedPiece.position;
     const targetPiece = this.state.chessEngine.getPieceAt(to);
     
+    // Check if target piece is protected
+    if (targetPiece) {
+      const targetKey = `${to.row},${to.col}`;
+      if (this.state.protectedPieces.has(targetKey)) {
+        // Can't capture protected piece
+        return false;
+      }
+    }
+    
     const move: Move = {
       from,
       to,
@@ -73,6 +93,15 @@ export class GameStateManager {
     if (success) {
       this.state.moveHistory.push(move);
       this.state.canUndo = true;
+      
+      // Draw a card if a piece was captured
+      if (targetPiece) {
+        if (this.state.currentTurn === 'white') {
+          this.state.cardSystem.drawCardForPlayer();
+        } else {
+          this.state.cardSystem.drawCardForAI();
+        }
+      }
       
       // Handle card effects
       if (this.state.isCardActive && this.state.activeCard?.effect.type === 'move_twice') {
@@ -109,15 +138,51 @@ export class GameStateManager {
 
   playCard(cardId: string): boolean {
     if (this.state.currentTurn !== 'white') return false; // Only player can play cards for now
-    if (this.state.isCardActive) return false; // Can't play another card while one is active
-
-    const card = this.state.cardSystem.playCard(cardId, true);
+    
+    // Get the card first to check its type
+    const card = this.state.cardSystem.getCardById(cardId);
     if (!card) return false;
+    
+    // Check if we can play this card (can't play active cards while another is active)
+    if (this.state.isCardActive) {
+      return false;
+    }
+    
+    // Now actually play the card (remove from hand)
+    const playedCard = this.state.cardSystem.playCard(cardId, true);
+    if (!playedCard) return false;
 
-    if (card.effect.type === 'move_twice') {
-      this.state.isCardActive = true;
-      this.state.activeCard = card;
-      this.state.remainingMoves = 2;
+    switch (playedCard.effect.type) {
+      case 'move_twice':
+        this.state.isCardActive = true;
+        this.state.activeCard = playedCard;
+        this.state.remainingMoves = 2;
+        break;
+      
+      case 'teleport':
+        this.state.pendingTeleport = true;
+        this.state.isCardActive = true;
+        this.state.activeCard = playedCard;
+        // Player needs to select a piece and then a destination
+        break;
+      
+      case 'swap_pieces':
+        this.state.pendingSwap = true;
+        this.state.isCardActive = true;
+        this.state.activeCard = playedCard;
+        // Player needs to select two pieces to swap
+        break;
+      
+      case 'protect_piece':
+        this.state.isCardActive = true;
+        this.state.activeCard = playedCard;
+        // Player needs to select a piece to protect
+        break;
+      
+      case 'extra_turn':
+        this.state.hasExtraTurn = true;
+        // Effect will be applied at end of turn
+        break;
     }
 
     return true;
@@ -126,14 +191,29 @@ export class GameStateManager {
   private endTurn(): void {
     this.state.selectedPiece = null;
     this.state.validMoves = [];
+    
+    // Decrement protection timers
+    const protectedKeys = Array.from(this.state.protectedPieces.keys());
+    protectedKeys.forEach(key => {
+      const remaining = this.state.protectedPieces.get(key)!;
+      if (remaining <= 1) {
+        this.state.protectedPieces.delete(key);
+      } else {
+        this.state.protectedPieces.set(key, remaining - 1);
+      }
+    });
+    
+    // Handle extra turn
+    if (this.state.hasExtraTurn && this.state.currentTurn === 'white') {
+      this.state.hasExtraTurn = false;
+      // Don't change turn, player gets another turn
+      return;
+    }
+    
+    // Change turn
     this.state.currentTurn = this.state.currentTurn === 'white' ? 'black' : 'white';
     
-    // Draw a card for the player whose turn just ended
-    if (this.state.currentTurn === 'white') {
-      this.state.cardSystem.drawCardForPlayer();
-    } else {
-      this.state.cardSystem.drawCardForAI();
-    }
+    // Note: Cards are now only drawn when pieces are captured, not at end of turn
   }
 
   undoMove(): boolean {
