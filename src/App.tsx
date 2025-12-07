@@ -3,9 +3,10 @@ import { Board } from './components/Board';
 import { CardHand } from './components/CardHand';
 import { MoveHistory } from './components/MoveHistory';
 import { Timer } from './components/Timer';
+import { GameOver } from './components/GameOver';
 import { GameStateManager } from './utils/gameState';
 import { AI } from './utils/ai';
-import { Piece, Position } from './types/chess';
+import { Piece, Position, Color } from './types/chess';
 import './App.css';
 
 function App() {
@@ -14,7 +15,8 @@ function App() {
   const [ai] = useState(() => new AI('black'));
   const [isAITurn, setIsAITurn] = useState(false);
   const [useAI, setUseAI] = useState(true);
-  const aiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [gameId, setGameId] = useState(0); // Used to reset Timer component
+  const aiTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Get board representation from chess engine
   const getBoard = useCallback((): (Piece | null)[][] => {
@@ -31,11 +33,20 @@ function App() {
     const currentState = gameStateManager.getState();
     if (currentState.currentTurn !== 'black') return;
     
+    // Don't make AI move if game is over (checkmate)
+    if (currentState.isCheckmate.white || currentState.isCheckmate.black) return;
+    
     setIsAITurn(true);
     
     aiTimeoutRef.current = setTimeout(() => {
       const state = gameStateManager.getState();
       if (state.currentTurn !== 'black' || !useAI) {
+        setIsAITurn(false);
+        return;
+      }
+      
+      // Don't make AI move if game is over (checkmate)
+      if (state.isCheckmate.white || state.isCheckmate.black) {
         setIsAITurn(false);
         return;
       }
@@ -56,6 +67,9 @@ function App() {
 
   const handleSquareClick = useCallback((position: Position) => {
     if (isAITurn) return;
+    
+    // Don't allow moves if game is over (checkmate)
+    if (gameState.isCheckmate.white || gameState.isCheckmate.black) return;
     
     // When AI is enabled, only white can move manually
     // When AI is disabled, both players can move
@@ -100,6 +114,9 @@ function App() {
     if (isAITurn) return;
     // Cards can only be played by white for now (even when AI is off)
     if (gameState.currentTurn !== 'white') return;
+    
+    // Don't allow cards if game is over (checkmate)
+    if (gameState.isCheckmate.white || gameState.isCheckmate.black) return;
     const success = gameStateManager.playCard(cardId);
     if (success) {
       updateGameState();
@@ -128,6 +145,8 @@ function App() {
     setIsAITurn(false);
     gameStateManager.resetGame();
     updateGameState();
+    // Increment gameId to reset Timer component
+    setGameId(prev => prev + 1);
   }, [gameStateManager, updateGameState]);
 
   const handleToggleAI = useCallback((enabled: boolean) => {
@@ -150,8 +169,37 @@ function App() {
     }
   };
 
+  // Determine winner based on checkmate status
+  const getWinner = (): Color | null => {
+    // Debug logging
+    if (gameState.isCheckmate.white || gameState.isCheckmate.black) {
+      console.log('Checkmate state in App:', gameState.isCheckmate);
+    }
+    
+    if (gameState.isCheckmate.white) {
+      return 'black'; // Black wins if white is checkmated
+    }
+    if (gameState.isCheckmate.black) {
+      return 'white'; // White wins if black is checkmated
+    }
+    return null;
+  };
+
+  const winner = getWinner();
+  
+  // Debug logging
+  if (winner) {
+    console.log('Winner determined:', winner);
+  }
+
   return (
     <div className="app">
+      {winner && (
+        <GameOver 
+          winner={winner} 
+          onNewGame={handleNewGame}
+        />
+      )}
       <header className="app-header">
         <h1>ChessMod</h1>
         <p className="subtitle">Chess with Cards</p>
@@ -173,6 +221,7 @@ function App() {
       <div className="game-container">
         <div className="game-sidebar left">
           <Timer 
+            key={gameId}
             currentTurn={gameState.currentTurn} 
             isActive={true}
           />

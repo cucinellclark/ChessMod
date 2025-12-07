@@ -2,7 +2,7 @@ import { Color, Move, Piece, Position } from '../types/chess';
 import { Card } from '../types/cards';
 import { ChessEngine } from './chessEngine';
 import { CardSystem } from './cardSystem';
-import { SpecialMoveContext } from './specialMoves';
+import { SpecialMoveContext, isCheckmate } from './specialMoves';
 
 export interface GameState {
   chessEngine: ChessEngine;
@@ -24,6 +24,7 @@ export interface GameState {
     white: { kingside: boolean; queenside: boolean };
     black: { kingside: boolean; queenside: boolean };
   };
+  isCheckmate: { white: boolean; black: boolean };
 }
 
 export class GameStateManager {
@@ -49,7 +50,8 @@ export class GameStateManager {
       castlingRights: {
         white: { kingside: true, queenside: true },
         black: { kingside: true, queenside: true }
-      }
+      },
+      isCheckmate: { white: false, black: false }
     };
   }
 
@@ -65,7 +67,8 @@ export class GameStateManager {
   getState(): GameState {
     return { 
       ...this.state,
-      protectedPieces: new Map(this.state.protectedPieces)
+      protectedPieces: new Map(this.state.protectedPieces),
+      isCheckmate: { ...this.state.isCheckmate }
     };
   }
 
@@ -212,12 +215,32 @@ export class GameStateManager {
         }
       }
 
+      // Check for checkmate after the move
+      this.updateCheckmateStatus();
+      
       // End turn
       this.endTurn();
       return true;
     }
 
     return false;
+  }
+
+  private updateCheckmateStatus(): void {
+    // Get special move context for checkmate detection (needed for special moves like castling)
+    const context = this.getSpecialMoveContext();
+    
+    // Check for checkmate for both players
+    const whiteCheckmate = isCheckmate('white', this.state.chessEngine, context);
+    const blackCheckmate = isCheckmate('black', this.state.chessEngine, context);
+    
+    this.state.isCheckmate.white = whiteCheckmate;
+    this.state.isCheckmate.black = blackCheckmate;
+    
+    // Debug logging
+    if (whiteCheckmate || blackCheckmate) {
+      console.log('Checkmate detected!', { white: whiteCheckmate, black: blackCheckmate });
+    }
   }
 
   playCard(cardId: string): boolean {
@@ -390,6 +413,9 @@ export class GameStateManager {
     this.state.activeCard = null;
     this.state.remainingMoves = 1;
 
+    // Update checkmate status after undo
+    this.updateCheckmateStatus();
+
     return true;
   }
 
@@ -417,7 +443,8 @@ export class GameStateManager {
       castlingRights: {
         white: { kingside: true, queenside: true },
         black: { kingside: true, queenside: true }
-      }
+      },
+      isCheckmate: { white: false, black: false }
     };
   }
 }

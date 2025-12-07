@@ -88,3 +88,51 @@ export function filterMovesThatLeaveKingInCheck(
 
   return validMoves;
 }
+
+/**
+ * Check if the player of the given color is in checkmate
+ * Checkmate occurs when:
+ * 1. The king is in check
+ * 2. The king cannot move to any safe square
+ * 3. No other piece can block or capture the attacking piece(s)
+ */
+export function isCheckmate(
+  color: Color,
+  engine: ChessEngineHelper,
+  specialMoveContext?: any
+): boolean {
+  // First, check if the king is in check
+  if (!isKingInCheck(color, engine)) {
+    return false;
+  }
+
+  // Check if there are any legal moves available
+  // If there are no legal moves and the king is in check, it's checkmate
+  const board = engine.getBoard();
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const piece = board[row][col];
+      if (piece && piece.color === color) {
+        // Use ChessEngine's getValidMoves if available (includes special moves and filtering)
+        let legalMoves: Position[] = [];
+        
+        if (typeof (engine as any).getValidMoves === 'function') {
+          // Use the engine's getValidMoves which handles special moves and filtering
+          legalMoves = (engine as any).getValidMoves(piece, specialMoveContext);
+        } else {
+          // Fallback: get basic moves and filter manually
+          const basicMoves = PIECE_REGISTRY[piece.type].getMoves(piece, engine);
+          legalMoves = filterMovesThatLeaveKingInCheck(basicMoves, piece, engine);
+        }
+        
+        // If this piece has any legal moves, it's not checkmate
+        if (legalMoves.length > 0) {
+          return false;
+        }
+      }
+    }
+  }
+
+  // King is in check and no piece has any legal moves
+  return true;
+}
